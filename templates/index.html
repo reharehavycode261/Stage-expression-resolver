@@ -1,0 +1,234 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+	<title>Résolution d'équation</title>
+    <style>
+        body {
+            margin: auto;
+            text-align: center;
+            font-family: "Apple Chancery", Times, serif;
+        }
+        .button {
+            text-align: center;
+            padding: 10px 20px;
+            border-radius: 5px;
+            background-color: white;
+        }
+        .button-green {
+            background-color: rgba(0, 128, 128, 0.57);
+            color: white;
+        }
+        .button-red {
+            background-color: rgba(139, 0, 0, 0.63);
+            color: white;
+        }
+        .button-blue {
+            background-color: cornflowerblue;
+            color: white;
+        }
+        .button:hover {
+            box-shadow: grey 1px 1px 5px;
+        }
+        .input {
+            padding: 10px 20px;
+            border-radius: 5px;
+            background-color: white;
+            width: 100px;
+        }
+        #resultat {
+            margin: 20px 100px;
+            text-align: left;
+            border: 1px solid black;
+            padding: 20px;
+        }
+        #graph {
+            width: 200px;
+            height: 200px;
+        }
+    </style>
+    <script src="{% static 'chart.js/chart.js' %}"></script>
+</head>
+<body>
+    <h1>Résolution d'équation à une inconnue (w)</h1>
+	<canvas id="canvas" width="1000" height="400" style="background-color: blanchedalmond; box-shadow: grey 1px 1px 10px;"></canvas>
+    <br>
+    <div>
+        <button class="button" onclick="write_black()">Ecrire</button>
+        <button class="button" onclick="clear_white()">Effacer</button>
+        <br> <br>
+        <input type="text" name="correction" placeholder="Correction" id="correct" class="input">
+        <button onclick="correct()" class="button">Corriger</button>
+        <br> <br>
+        <button onclick="clearCanvas()" class="button button-red">Effacer tout</button>
+        <button onclick="download()" class="button button-blue">Télécharger</button>
+        <button onclick="predict()" class="button button-green">Prédire</button>
+    </div>
+    <p id="resultat" style="display: none">
+        <strong>Equation lu:</strong> <span id="pred_recu"></span> <br>
+        <strong>Equation à résoudre:</strong> <span id="pred_convert"></span> <br>
+        <strong>Résultat:</strong> <br>
+        <span id="prediction"></span>
+    </p>
+    <canvas id="graph"></canvas>
+	<script>
+        function startDrawing() {
+			isDrawing = true;
+		}
+
+		function draw(event) {
+			if (isDrawing) {
+				// Get current mouse position and draw line from last position
+                let x = event.clientX - canvas.offsetLeft;
+                let y = event.clientY - canvas.offsetTop;
+
+                // Draw a filled circle
+                context.beginPath();
+                context.arc(x, y, 10, 0, Math.PI * 2);
+                context.fillStyle = color;
+                context.fill();
+			}
+		}
+
+		function stopDrawing() {
+			isDrawing = false;
+            predict();
+		}
+
+        function clearCanvas() {
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            document.getElementById('prediction').innerHTML = '';
+            context.fillStyle = 'white';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function download() {
+            let link = document.createElement("a");
+            link.href = canvas.toDataURL("image/png").replace("image/png", "image/octet-stream");
+            link.download = "test.png";
+            link.click();
+        }
+
+        function predict() {
+          let formData = new FormData();
+          // send the canvas image as a png file
+          formData.append("image", dataToBlob(canvas.toDataURL("image/png")));
+          formData.append("csrfmiddlewaretoken", "{{ csrf_token }}");
+
+          let request = new XMLHttpRequest();
+          request.open("POST", "{% url 'number_index' %}", true);
+          request.onreadystatechange = function() {
+            if (request.readyState === 4 && request.status === 200) {
+                let result = JSON.parse(request.responseText)
+                document.getElementById("prediction").innerHTML = "";
+                for(let x of result.prediction)
+                    document.getElementById("prediction").innerHTML += x + "<br>";
+                document.getElementById("pred_recu").innerHTML = result.pred_recu;
+                document.getElementById("pred_convert").innerHTML = result.pred_convert;
+                document.getElementById("resultat").style.display = "block";
+                if(result.res_equ) {
+                    make_graph(parseFloat(result.res_equ.replace(' ', '')), result.sep_equ);
+                }
+            }
+          };
+          request.send(formData);
+        }
+
+        function dataToBlob(dataURI) {
+          let byteString = atob(dataURI.split(',')[1]);
+          let mimeString = dataURI.split(',')[0].split(':')[1].split(';')[0];
+          let ab = new ArrayBuffer(byteString.length);
+          let ia = new Uint8Array(ab);
+          for (let i = 0; i < byteString.length; i++) {
+            ia[i] = byteString.charCodeAt(i);
+          }
+          return new Blob([ab], {type: mimeString});
+        }
+
+        function clear_white() {
+            color = 'white';
+            size = 20;
+        }
+
+        function write_black() {
+            color = 'black';
+            size = 10;
+        }
+
+
+        // Get the canvas element and context
+        let canvas = document.getElementById("canvas");
+        let context = canvas.getContext("2d");
+
+        let isDrawing = false;
+        write_black();
+        clearCanvas();
+        //plot();
+
+        // Set up event listeners to handle mouse events
+		canvas.addEventListener("mousedown", startDrawing);
+		canvas.addEventListener("mousemove", draw);
+		canvas.addEventListener("mouseup", stopDrawing);
+        canvas.addEventListener("mouseout", stopDrawing);
+
+        function make_graph(result, sep) {
+            // Création d'un tableau de valeurs pour l'axe des x
+            const xValues = [];
+            const yValues = [];
+            for (let x = -10; x <= 10; x += 1) {
+              xValues.push(x);
+              yValues.push(result);
+            }
+
+            // Récupération de l'élément canvas dans votre page HTML
+            const graph = document.getElementById('graph');
+
+            // Création du graphe
+            new Chart(graph, {
+              type: 'line',
+              data: {
+                labels: xValues,
+                datasets: [
+                  {
+                    label: 'Inéquation',
+                    data: yValues,
+                    borderColor: sep.startsWith('=') ? 'rgb(18,115,12)' : 'rgb(217,0,0)',
+                    backgroundColor: 'rgba(15,248,0,0.2)',
+                    fill: sep.startsWith('>') ? 'end' : sep.startsWith('<') ? 'start' : false,
+                    pointRadius: 0,
+                  },
+                ],
+              },
+              options: {
+                scales: {
+                  scales: {
+                      x: {
+                        display: true, // Display the x-axis
+                        grid: {
+                          display: true // Display the x-axis grid lines
+                        },
+                        scaleLabel: {
+                          display: true,
+                          labelString: 'Y' // Label for the x-axis
+                        }
+                      },
+                      y: {
+                        display: true, // Display the y-axis
+                        grid: {
+                          display: true // Display the y-axis grid lines
+                        },
+                        scaleLabel: {
+                          display: true,
+                          labelString: 'X' // Label for the x-axis
+                        }
+                      }
+                    }
+                },
+              },
+            });
+        }
+
+	</script>
+
+</body>
+</html>
