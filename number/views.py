@@ -1,25 +1,21 @@
-import pickle
-from io import BytesIO
-
-from PIL import Image
-from django.core.exceptions import ValidationError
+import numpy as np
 from django.http import JsonResponse
-from django.shortcuts import render
+from sklearn.dummy import DummyClassifier
+from number.models import cross_validate, evaluate_model_performance
 
-from S4_IA.settings import BASE_DIR
-from number.models import Character
+def perform_cross_validation(request):
+    """
+    Vue effectuant la validation croisée sur le modèle et retournant ses scores.
+    """
+    # Exemple de données d'entraînement
+    X = np.array([[1], [2], [3], [4], [5]])  # Remplacez par vos véritables caractéristiques
+    y = np.array([0, 1, 0, 1, 0])  # Remplacez par vos véritables labels
 
+    # Utilisation d'un DummyClassifier pour l'exemple
+    model = DummyClassifier(strategy="most_frequent")
 
-def index(request):
-    if request.method == 'POST':
-        c = Character.objects.create(image=request.FILES.get('image'))
-        print(c.get_prediction())
-        step, res, sep = c.get_solution()
-        return JsonResponse({
-            'pred_recu': ' '.join(c.get_prediction()),
-            'pred_convert': c.get_prediction_str(),
-            'prediction': step,
-            'res_equ': res,
-            'sep_equ': sep
-        })
-    return render(request, 'index.html')
+    # Exécuter la validation croisée
+    scores = cross_validate(model, X, y, cv=5)
+    performance = evaluate_model_performance(scores)
+
+    return JsonResponse(performance)
