@@ -1,25 +1,25 @@
-import pickle
+import matplotlib.pyplot as plt
+import numpy as np
 from io import BytesIO
-
-from PIL import Image
-from django.core.exceptions import ValidationError
-from django.http import JsonResponse
+from django.http import HttpResponse
 from django.shortcuts import render
 
-from S4_IA.settings import BASE_DIR
-from number.models import Character
+def plot_equation_view(request):
+    if request.method == "POST":
+        equation = request.POST.get('equation', 'x**2')  # Par défaut une parabole si non spécifiée
+        x = np.linspace(-10, 10, 400)
+        y = eval(equation, {"x": x, "np": np})
 
+        plt.figure()
+        plt.plot(x, y)
+        plt.title(f'Graph of {equation}')
+        plt.xlabel('x')
+        plt.ylabel('y')
 
-def index(request):
-    if request.method == 'POST':
-        c = Character.objects.create(image=request.FILES.get('image'))
-        print(c.get_prediction())
-        step, res, sep = c.get_solution()
-        return JsonResponse({
-            'pred_recu': ' '.join(c.get_prediction()),
-            'pred_convert': c.get_prediction_str(),
-            'prediction': step,
-            'res_equ': res,
-            'sep_equ': sep
-        })
+        buf = BytesIO()
+        plt.savefig(buf, format='png')
+        plt.close()
+        buf.seek(0)
+        return HttpResponse(buf.read(), content_type='image/png')
+
     return render(request, 'index.html')
