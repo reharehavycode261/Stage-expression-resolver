@@ -1,25 +1,22 @@
-import pickle
-from io import BytesIO
-
-from PIL import Image
-from django.core.exceptions import ValidationError
+from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
-from django.shortcuts import render
+from .models import Character, Anomaly
 
-from S4_IA.settings import BASE_DIR
-from number.models import Character
+def detect_anomalies(data):
+    # Exemple simplifié de détection d'anomalies
+    anomalies = []
+    if np.mean(data) > threshold:  # Supposons qu'une valeur seuil soit définie
+        anomalies.append("Mean value too high")
+    return anomalies
 
+def character_detail(request, character_id):
+    character = get_object_or_404(Character, pk=character_id)
+    data = []  # Supposons que nous obtenons des données à partir de `character`
 
-def index(request):
-    if request.method == 'POST':
-        c = Character.objects.create(image=request.FILES.get('image'))
-        print(c.get_prediction())
-        step, res, sep = c.get_solution()
-        return JsonResponse({
-            'pred_recu': ' '.join(c.get_prediction()),
-            'pred_convert': c.get_prediction_str(),
-            'prediction': step,
-            'res_equ': res,
-            'sep_equ': sep
-        })
-    return render(request, 'index.html')
+    anomalies = detect_anomalies(data)
+    for description in anomalies:
+        anomaly, created = Anomaly.objects.get_or_create(description=description)
+        character.detected_anomalies.add(anomaly)
+
+    context = {'character': character, 'anomalies': character.detected_anomalies.all()}
+    return render(request, 'character_detail.html', context)
