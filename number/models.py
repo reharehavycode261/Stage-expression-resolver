@@ -1,213 +1,78 @@
 import operator
 import pickle
-
 import numpy as np
 import pandas as pd
-from PIL import Image
 from django.db import models
 from sympy import symbols
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error
 
-from number.expression import calculate, separation
-
-
-def load(filename):
-    with open(filename, 'rb') as f:
-        return pickle.load(f)
-
-
-def is_number(s):
-    try:
-        float(s)
-        return True
-    except ValueError:
-        return False
-
-
-def opposite(x):
-    if x == '-':
-        return '+'
-    elif x == '+':
-        return '-'
-    elif x == '*':
-        return '/'
-    elif x == '/':
-        return '*'
-    else:
-        return '+'
-
-
-class Character(models.Model):
-    MODEL = load('./model_creation/model.pickle')
-    image = models.ImageField(null=True)
-    prediction = models.CharField(null=True, max_length=1)
-    correct = models.CharField(null=True, max_length=1)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    @staticmethod
-    def split_image_col(image):
-        image = np.array(image)
-        image_split = []
-        temp = []
-        for i in range(0, image.shape[1]):
-            if image[:, i].mean() == 255:
-                if i - 1 > 0 and image[:, i - 1].mean() != 255:
-                    image_split.append(np.transpose(np.array(temp)))
-                    temp = []
-            else:
-                temp.append(image[:, i])
-        if len(temp) > 0:
-            image_split.append(temp)
-        return image_split
-
-    @staticmethod
-    def split_image_row(image):
-        image = image.convert('L')
-        image = np.array(image)
-        image = np.where(image > 0, 255, 0)
-        image_split = []
-        temp = []
-        for i in range(0, image.shape[0]):
-            if image[i].mean() == 255:
-                if i - 1 > 0 and image[i - 1].mean() != 255:
-                    image_split.append(Image.fromarray(np.array(temp, dtype='uint8')))
-                    temp = []
-            else:
-                temp.append(image[i, :])
-        if len(temp) > 0:
-            image_split.append(Image.fromarray(np.array(temp, dtype='uint8')))
-        return image_split
-
-    @staticmethod
-    def split_image(image):
-        rows = Character.split_image_row(image)
-        images = []
-        for row in rows:
-            cols = Character.split_image_col(row)
-            for col in cols:
-                images.append(Character.rescale_image(col))
-        return images
-
-    @staticmethod
-    def rescale_image(image):
-        non_empty_rows = np.where(np.mean(image, axis=1) < 255)[0]
-        image = image[non_empty_rows]
-
-        non_empty_columns = np.where(np.mean(image, axis=0) < 255)[0]
-        image = image[:, non_empty_columns]
-
-        image = np.uint8(image)
-        image = Image.fromarray(image)
-
-        resized_image = image.resize((28, 28), resample=Image.LANCZOS)
-        return np.where(np.array(resized_image) > 50, 255, 0)
-
-    @staticmethod
-    def convert_1d(array2d):
-        columns = [f'0.' + str(i) for i in range(1, 785)]
-        array = [np.ravel(array2d)]
-        return pd.DataFrame(array, columns=columns)
-
-    def get_prediction(self):
-        image = Image.open(self.image)
-        images = Character.split_image(image)
-        predictions = []
-        for image in images:
-            image = Character.convert_1d(image)
-            prediction = chr(int(Character.MODEL.predict(image)[0]))
-            predictions.append(prediction)
-        return predictions
-
-    def get_prediction_str(self):
-        pred = self.get_prediction()
-        res = ''
-        for i, x in enumerate(pred):
-            res += x + ' '
-        return res.strip().replace('% % %', '>').replace('% %', '<')\
-            .replace('w', 'x').replace('%', '=').replace('[', '(').replace(']', ')')
-
-    @staticmethod
-    def finalize(equation, sep):
-        eq = equation.split(sep)[0][:-2]
-        eq = eq+'1' if len(eq) <= 1 else eq
-        return equation.split(sep)[1].replace('x', '') + " / " + str(eq).replace('x', '')
-
-    @staticmethod
-    def evaluate_expression(expression, x):
-        operators = {
-            '+': operator.add,
-            '-': operator.sub,
-            '*': operator.mul,
-            '/': operator.truediv,
-            '%': operator.mod,
-            '**': operator.pow
-        }
-
-        stack = []
-        tokens = expression.split()
-
-        for token in tokens:
-            if token.isdigit():
-                stack.append(float(token))
-            elif token.isalpha() and token == 'x':
-                stack.append(x)
-            elif token in operators:
-                operand2 = stack.pop()
-                operand1 = stack.pop()
-                result = operators[token](operand1, operand2)
-                stack.append(result)
-            else:
-                print(f"Opérateur ou variable inconnu : {token}")
-                return None
-
-        if len(stack) == 1:
-            return stack[0]
-        else:
-            print("Erreur d'expression.")
-            return None
-
-    @staticmethod
-    def separation(mot):
-        if str(mot).find('>') != -1:
-            return '>'
-        elif str(mot).find('<') != -1:
-            return '<'
-        else:
-            return '='
-
-    def get_solution(self):
+class ModelRetrainingPipeline:
+    def __init__(self, model_path, data_path, retrained_model_path):
+        self.model_path = model_path
+        self.data_path = data_path
+        self.retrained_model_path = retrained_model_path
+        self.model = None
+        self.data = None
+        self.X_train, self.X_test, self.y_train, self.y_test = None, None, None, None
+        
+    def load_data(self):
         try:
-            sep = self.separation(self.get_prediction_str())
-            print(sep)
-            equation = self.get_prediction_str().split(sep)
-            print('eq:' + str(equation))
-
-            step = ["--> Résolvons l'équation", str(equation[0]) + f' {sep} ' + str(equation[1]),
-                    "<br>--> Simplifier l'équation"]
-
-            simpl = str(calculate(equation[0])) + f' {sep} ' + str(calculate(equation[1]))
-            print(simpl)
-            step.append(simpl)
-
-            step.append("<br>--> Changement de membre")
-            change = separation(simpl, sep)
-            print("qsdf" + change)
-            step.append(change)
-
-            step.append("<br>--> Calcul")
-            eq = change.split(sep)
-            mem1 = calculate(eq[0])
-            mem2 = calculate(eq[1])
-            eq = str(mem1) + f' {sep} ' + str(mem2)
-            step.append(eq)
-            print('eto1 -->' + eq)
-            step.append(f"x {sep} "+self.finalize(eq, sep))
-            print(f"eto2 --> x {sep} "+self.finalize(eq, sep))
-
-            res = calculate(self.finalize(eq, sep))
-            step.append(f"x {sep} " + res)
-            print('eto3')
-
-            return step, res, sep
+            self.data = pd.read_csv(self.data_path)
+            print("Data loaded successfully.")
         except Exception as e:
-            # raise e
-            return ["Il n'y a pas de résultat!"], None, None
+            print(f"Error loading data: {e}")
+        
+    def preprocess_data(self):
+        # Example preprocessing
+        self.X = self.data.drop("target", axis=1)
+        self.y = self.data["target"]
+        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(self.X, self.y, test_size=0.2, random_state=42)
+        print("Data preprocessing completed.")
+        
+    def load_model(self):
+        try:
+            with open(self.model_path, 'rb') as f:
+                self.model = pickle.load(f)
+            print("Model loaded successfully.")
+        except Exception as e:
+            print(f"Error loading model: {e}")
+        
+    def retrain_model(self):
+        try:
+            if self.model is None:
+                self.model = LinearRegression()
+            self.model.fit(self.X_train, self.y_train)
+            print("Model retrained successfully.")
+        except Exception as e:
+            print(f"Error retraining model: {e}")
+        
+    def evaluate_model(self):
+        try:
+            predictions = self.model.predict(self.X_test)
+            mse = mean_squared_error(self.y_test, predictions)
+            print(f"Model evaluation completed. MSE: {mse}")
+        except Exception as e:
+            print(f"Error evaluating model: {e}")
+        
+    def save_retrained_model(self):
+        try:
+            with open(self.retrained_model_path, 'wb') as f:
+                pickle.dump(self.model, f)
+            print("Retrained model saved successfully.")
+        except Exception as e:
+            print(f"Error saving retrained model: {e}")
+        
+    def run_pipeline(self):
+        self.load_data()
+        self.preprocess_data()
+        self.load_model()
+        self.retrain_model()
+        self.evaluate_model()
+        self.save_retrained_model()
+
+# Exemple d'utilisation du pipeline de réentraînement
+if __name__ == "__main__":
+    pipeline = ModelRetrainingPipeline("path/to/existing/model.pkl", "path/to/data.csv", "path/to/save/retrained_model.pkl")
+    pipeline.run_pipeline()
