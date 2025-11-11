@@ -1,25 +1,34 @@
-import pickle
-from io import BytesIO
-
-from PIL import Image
-from django.core.exceptions import ValidationError
-from django.http import JsonResponse
 from django.shortcuts import render
+import numpy as np
+import matplotlib.pyplot as plt
+import io
+import urllib, base64
 
-from S4_IA.settings import BASE_DIR
-from number.models import Character
-
-
-def index(request):
+def plot_equation(request):
+    plot = None
     if request.method == 'POST':
-        c = Character.objects.create(image=request.FILES.get('image'))
-        print(c.get_prediction())
-        step, res, sep = c.get_solution()
-        return JsonResponse({
-            'pred_recu': ' '.join(c.get_prediction()),
-            'pred_convert': c.get_prediction_str(),
-            'prediction': step,
-            'res_equ': res,
-            'sep_equ': sep
-        })
-    return render(request, 'index.html')
+        equation = request.POST.get('equation', '')
+
+        # Convertir l'équation pour utilisation par numpy
+        x = np.linspace(-10, 10, 400)
+        y = eval(equation, {'x': x, 'np': np})
+
+        # Création de la figure
+        plt.figure()
+        plt.plot(x, y, label=equation)
+        plt.title('Visualisation de l\'équation')
+        plt.xlabel('x')
+        plt.ylabel('y')
+        plt.axhline(0, color='black',linewidth=0.5)
+        plt.axvline(0, color='black',linewidth=0.5)
+        plt.grid(color = 'gray', linestyle = '--', linewidth = 0.5)
+        plt.legend()
+
+        # Conversion de la figure en image PNG
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        buf.seek(0)
+        string = base64.b64encode(buf.read())
+        plot = urllib.parse.quote(string)
+
+    return render(request, 'index.html', {'plot': plot})
