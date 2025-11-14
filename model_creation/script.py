@@ -1,11 +1,10 @@
 import os
 from os.path import isfile
-
 import pandas as pd
 from PIL import Image
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
-
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.model_selection import cross_val_score
 
 def get_directories_in(path='.'):
     directories = []
@@ -15,58 +14,52 @@ def get_directories_in(path='.'):
             directories.append(f"{path}/{file}")
     return directories
 
-
 def get_images_in(directory):
     img_list = []
     files = os.listdir(directory)
     for file in files:
-        img_list.append(f"{directory}/{file}")
+        if isfile(os.path.join(directory, file)) and file.endswith('.jpg'):
+            img_list.append(Image.open(os.path.join(directory, file)))
     return img_list
 
+def cross_validate_model(model, X, y, cv=5):
+    """
+    Perform cross-validation on the model using the given features and labels.
+    
+    Args:
+        model: The machine learning model to evaluate
+        X: Feature data
+        y: Label data
+        cv: Number of cross-validation folds
 
-def get_all_image(path='.'):
-    directories = get_directories_in(path)
-    images = []
-    for directory in directories:
-        if not isfile(directory):
-            images.extend(get_images_in(directory))
-        else:
-            images.append(directory)
-    return images
+    Returns:
+        A list of cross-validation scores
+    """
+    scores = cross_val_score(model, X, y, cv=cv)
+    return scores
 
+def evaluate_model_performance(model, X_train, X_test, y_train, y_test):
+    """
+    Evaluate the performance of the model using various metrics.
 
-def convert(value):
-    return ord(value)
+    Args:
+        model: The machine learning model to evaluate
+        X_train: Training feature data
+        X_test: Testing feature data
+        y_train: Training label data
+        y_test: Testing label data
 
+    Returns:
+        A dictionary containing various performance metrics
+    """
+    model.fit(X_train, y_train)
+    
+    y_pred = model.predict(X_test)
 
-def put_in_dataframe(data, image):
-    name = image
-    img = Image.open(name, 'r')
-    img = img.resize((28, 28))
-    info = name.split('/')[-1].split('_')[0]
-    row = [convert(info[0])]
-    row.extend(list(img.getdata()))
-    img.close()
-    return pd.concat([data, pd.DataFrame([row], columns=data.columns)], ignore_index=True)
-
-
-def build_dataframe(img_path='.'):
-    columns = ['0']
-    columns.extend([f"0.{x}" for x in range(1, 785)])
-    data = pd.DataFrame(columns=columns)
-    images = get_all_image(img_path)
-    i = 0
-    for img in images:
-        if i % 32000 == 0:
-            print(i)
-        data = put_in_dataframe(data, img)
-        i += 1
-    return data
-
-
-df1 = build_dataframe("./data/CompleteImages/All data (Compressed)")
-
-df1.to_parquet('data.parquet')
-
-model = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=0)
-print(accuracy_score)
+    performance_metrics = {
+        'accuracy': accuracy_score(y_test, y_pred),
+        'precision': precision_score(y_test, y_pred, average='weighted'),
+        'recall': recall_score(y_test, y_pred, average='weighted'),
+        'f1_score': f1_score(y_test, y_pred, average='weighted')
+    }
+    return performance_metrics
